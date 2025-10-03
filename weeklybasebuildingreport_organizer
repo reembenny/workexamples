@@ -1,0 +1,80 @@
+/*
+Owner: Reem Benny
+Last Update: May 27, 2025
+
+Report Name: Weekly Base Building Organizer’s Reporting Form
+
+Purpose: This code looks at c3 organizing chapter activity by organizer
+*/
+
+--CTE combining worker AC table and assigned staff table
+
+
+with c3workerinfo
+
+as
+
+(
+select
+   ac.ActivistCodeID
+   ,ac.VanID
+   ,us.CanvasserName
+   ,dc.DateCreated 
+   ,ca.utc_datecanvassed
+   ,contacttypename
+   ,mem.ContactsMembershipProgramLevelStatusID
+   ,fol.DateCompleted
+   ,fol.FollowUpStatusID
+
+  from `proj-tmc-mem-ndwa.raw_everyaction__ndwa.tsm_tmc_contactsactivistcodes_ndwa` as ac
+  left join `proj-tmc-mem-ndwa.raw_everyaction__ndwa_cloud.contactsassignedstaff` st
+    on ac.VanID = st.VanID
+  left join `proj-tmc-mem-ndwa.raw_everyaction__ndwa_cloud.users` us
+    on st.AssignedStaffUserID = us.UserID
+  left join `proj-tmc-mem-ndwa.raw_everyaction__ndwa.tsm_tmc_contacts_ndwa` as dc 
+    on ac.VanID = dc.VanID
+  left join `proj-tmc-mem-ndwa.raw_everyaction__ndwa_cloud.contactsmembershipprogramlevels` mem 
+    on ac.VanID = mem.VanID
+  left join 
+    (select vanid, utc_datecanvassed, contacttypename
+    from  `proj-tmc-mem-ndwa.everyaction_enhanced.enh_everyaction__contact_attempts` ca
+    where cast(utc_datecanvassed as date) >= date_sub(current_date(), interval 1 WEEK) and      contacttypename = 'one on one') ca
+    on ca.VanID = ac.VanID
+    left join `proj-tmc-mem-ndwa.raw_everyaction__ndwa_cloud.contactsfollowups` fol
+  on ac.VanID = fol.VANID
+  left join `proj-tmc-mem-ndwa.raw_everyaction__ndwa.tsm_tmc_contactssurveyresponses_ndwa` csq
+  on ac.VanID = csq.VanID
+  where ac.ActivistCodeID = 4731551
+    and dc.Deceased = 0
+    and csq.VanID not in 
+(select distinct VanID
+from `proj-tmc-mem-ndwa.raw_everyaction__ndwa.tsm_tmc_contactssurveyresponses_ndwa`
+where SurveyQuestionID = 485792
+and SurveyResponseID != 2334009)
+)
+
+--data being pulled
+select 
+  CanvasserName,
+  current_date() as last_updated,
+
+  count(distinct case 
+    when cast(w.DateCreated as date) >= date_sub(current_date(), interval 1 WEEK) 
+    then w.VanID 
+  end) as new_contacts,
+
+  count (case when cast(w.utc_datecanvassed as date) >= date_sub(current_date(), interval 1 WEEK) and contacttypename = 'one on one' then cast (w.utc_datecanvassed as date) end) as one_on_one,
+
+  count(distinct case 
+    when ContactsMembershipProgramLevelStatusID = 1 
+    then w.VanID 
+  end) as active_mems,
+
+  count (case 
+    when cast(w.DateCompleted as date) >= date_sub(current_date(), interval 1 WEEK) and FollowUpStatusID = 4
+    then w.VanID 
+  end) as followups
+
+from c3workerinfo as w
+group by CanvasserName
+order by CanvasserName
