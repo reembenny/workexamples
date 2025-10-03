@@ -1,0 +1,134 @@
+WITH
+  base AS (
+  SELECT
+    DISTINCT a.vanid,
+    firstname,
+    lastname, 
+    wedib,
+    coalesce(b.state,ts.vb_vf_reg_state) as state,
+    coalesce(ea_race,ts_tsmr_race) as race,
+    type_of_work,
+    ea_gender,
+    ea_language,
+    (CONCAT(vaddress, ' ', city, ' ', ',',' ',state,' ',zip5 )) as mailing_address
+
+  FROM (
+    SELECT
+      *
+    FROM
+      `proj-tmc-mem-ndwa.raw_everyaction__ndwa.tsm_tmc_contactsactivistcodes_ndwa` AS ac
+    WHERE
+      activistcodeid = 4731551) a
+  LEFT JOIN
+    `proj-tmc-mem-ndwa.everyaction_cleaned.cln_everyaction__contactsaddresses` b
+  ON
+    a.vanid=b.vanid
+  LEFT JOIN
+    `core_enhanced.enh_activistpools__person_fields` AS pools
+  ON
+    a.vanid = CAST(pools.primary_key AS INT64)
+  LEFT JOIN
+    `core_targetsmart_enhanced.enh_activistpools__identities` AS identities
+  ON
+    pools.person_id = identities.person_id
+  LEFT JOIN
+    `targetsmart_enhanced.enh_targetsmart__ntl_current` ts
+  ON
+    identities.voterbase_id = ts.vb_voterbase_id
+    AND b.state = ts.vb_tsmart_state
+  LEFT JOIN
+    `proj-tmc-mem-ndwa.everyaction_cleaned.cln_everyaction__contacts` contacts
+  ON
+    a.vanid = contacts.vanid
+  LEFT JOIN
+  `proj-tmc-mem-ndwa.everyaction_cleaned.cln_everyaction__contactsphones` AS Phone
+  ON a.vanid = Phone.vanid
+  LEFT JOIN
+  `proj-tmc-mem-ndwa.everyaction_cleaned.cln_everyaction__contactsemails` AS email
+  ON a.vanid = email.vanid
+
+left join 
+(SELECT  
+ac.vanid
+
+--We Dream In Black
+,CASE
+  WHEN ac.activistcodeid = 4733163 THEN 'Y' ELSE 'N' END 
+  as wedib
+
+--type_of_work
+,CASE
+  WHEN ac.activistcodeid = 5150359 THEN 'Childcare'
+      WHEN ac.activistcodeid = 5150362 THEN 'DirectCare' -- aka homecare worker, working with elderly/disabled
+      WHEN ac.activistcodeid = 5150347 THEN 'HouseCleaner'
+      WHEN ac.activistcodeid = 5155553 THEN 'Other'
+      end as type_of_work
+
+
+--ea_gender
+,CASE
+  WHEN ac.activistcodeid = 5181183 THEN 'Man'
+    WHEN ac.activistcodeid = 5181185 THEN 'Woman'
+    WHEN ac.activistcodeid = 5181184 THEN 'Non-Binary'
+    WHEN ac.activistcodeid = 5181182 THEN 'Not-Listed'
+    WHEN ac.activistcodeid = 5394707 THEN 'Prefer Not to Answer'
+    end as ea_gender
+
+--ea_language
+,CASE WHEN ac.ActivistCodeID = 5214730 THEN 'English'  
+      WHEN ac.ActivistCodeID = 5214731 THEN 'Spanish'
+      end as ea_language
+
+--ea_race CHANGE TO WHAT THE VOTER FILE USES
+,CASE WHEN ActivistCodeID =  5136045 THEN 'B' --black_aa
+      WHEN ActivistCodeID = 5136044 THEN 'A' --asian
+      WHEN ActivistCodeID = 5136048	THEN 'hawaiian_pacificislander'
+      WHEN ActivistCodeID = 5136046 THEN 'indiginous_nativeamerican'
+      WHEN ActivistCodeID = 5136047 THEN 'H' --latinx_hispanic
+      WHEN ActivistCodeID =  5394710 THEN 'mena'
+      WHEN ActivistCodeID = 5136251 THEN 'O' --other, it is reading other if they have two race values on their profile
+      WHEN ActivistCodeID = 5394711	THEN 'prefnoanswer'
+      WHEN ActivistCodeID = 5136050	 THEN 'white'
+      end as ea_race     
+from `proj-tmc-mem-ndwa.raw_everyaction__ndwa.tsm_tmc_contactsactivistcodes_ndwa` ac
+) dw
+on dw.vanid = a.vanid
+  WHERE
+    contacts.deceased = 0
+    AND pools.vendor = 'every_action'
+    )
+ 
+SELECT
+  DISTINCT 
+  a.vanid,
+  wedib,
+  state,
+  race,
+  type_of_work,
+  ea_gender,
+  ea_language,
+  available_phone,
+  available_email,
+  mailing_address
+  
+
+FROM
+  base a
+left join
+( select vanid, 
+string_agg(phone.Phone,', ' order by phone.utc_datemodified) as available_phone,
+from `proj-tmc-mem-ndwa.everyaction_cleaned.cln_everyaction__contactsphones` phone
+where phone.utc_datesuppressed is not null
+group by vanid
+) phone on phone.vanid = a.vanid
+left join
+( select vanid,
+string_agg(email.email,', ' order by email.utc_datemodified) as available_email
+from `proj-tmc-mem-ndwa.everyaction_cleaned.cln_everyaction__contactsemails` email
+where email.utc_datesuppressed is not null
+group by vanid
+) email on email.vanid = a.vanid
+
+WHERE State NOT IN ('NC','GA','TX','NY','PA','CA','DC','MD','VA')
+AND race = 'B'
+AND mailing_address is not null
